@@ -1,0 +1,70 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/order_db
+    username: postgres
+    password: root   # no default on purpose: set the DB_PASSWORD environment variable
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update          # creates/updates tables automatically (local development only)
+    show-sql: true
+    open-in-view: false
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+# ---------------------------------------------------------------
+# Resilience4j: Retry, Circuit Breaker, Rate Limiter
+# ---------------------------------------------------------------
+resilience4j:
+  retry:
+    instances:
+      userService:
+        max-attempts: 3                 # 1 original call + 2 retries
+        wait-duration: 1s               # pause between attempts
+        ignore-exceptions:              # never retry these
+          - com.example.orderservice.exception.UserNotFoundException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+  circuitbreaker:
+    instances:
+      userService:
+        register-health-indicator: true
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 6                      # look at the last 6 calls
+        minimum-number-of-calls: 4                  # need at least 4 calls before judging
+        failure-rate-threshold: 50                  # open the circuit at 50% failures
+        wait-duration-in-open-state: 15s            # stay OPEN for 15 seconds
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:                          # a 404 is not a failure of the service
+          - com.example.orderservice.exception.UserNotFoundException
+  ratelimiter:
+    instances:
+      orderApi:
+        limit-for-period: 5             # max 5 calls ...
+        limit-refresh-period: 10s       # ... every 10 seconds
+        timeout-duration: 0             # do not wait, reject immediately
+
+# Actuator endpoints to watch the resilience state while testing
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,circuitbreakers,circuitbreakerevents,retries,retryevents,ratelimiters
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
